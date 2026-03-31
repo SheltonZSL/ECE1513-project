@@ -1,0 +1,9 @@
+sentencepiece>=0.2.0
+torch
+torchvision
+transformers
+datasets
+textattack
+scikit-learn
+matplotlib
+numpy
