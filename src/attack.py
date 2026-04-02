@@ -1,11 +1,11 @@
-"""Run TextFooler attack on a fine-tuned BERT model."""
+﻿"""Run TextFooler attack on a fine-tuned BERT model."""
 
 import argparse
 import json
 import os
+import random
 
 import torch
-import numpy as np
 from datasets import load_dataset
 from transformers import AutoTokenizer, BertForSequenceClassification
 
@@ -16,7 +16,7 @@ from textattack.datasets import Dataset as TADataset
 from textattack import Attacker, AttackArgs
 
 
-def get_correctly_classified_samples(model_wrapper, dataset, num_samples=200):
+def get_correctly_classified_samples(model_wrapper, dataset, num_samples=200, seed=42):
     """Select samples that the model classifies correctly."""
     correct_samples = []
     checked = 0
@@ -29,9 +29,12 @@ def get_correctly_classified_samples(model_wrapper, dataset, num_samples=200):
             correct_samples.append((sentence, label))
         if checked % 50 == 0:
             print(f"  Checked {checked} samples, found {len(correct_samples)}/{num_samples} correct...")
-        if len(correct_samples) >= num_samples:
-            break
-    return correct_samples
+
+    if len(correct_samples) <= num_samples:
+        return correct_samples
+
+    rng = random.Random(seed)
+    return rng.sample(correct_samples, num_samples)
 
 
 def main():
@@ -54,6 +57,17 @@ def main():
         default=None,
         help="Output path for attack results JSON",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sampling correctly-classified examples",
+    )
+    parser.add_argument(
+        "--disable_use_constraint",
+        action="store_true",
+        help="Disable the UniversalSentenceEncoder constraint to avoid TensorFlow dependencies",
+    )
     args = parser.parse_args()
 
     if args.output is None:
@@ -63,7 +77,6 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Load model
     tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
     model = BertForSequenceClassification.from_pretrained(args.model_dir)
     model.to(device)
@@ -71,26 +84,28 @@ def main():
 
     model_wrapper = HuggingFaceModelWrapper(model, tokenizer)
 
-    # Load validation set and pick correctly-classified samples
     val_dataset = load_dataset("glue", "sst2", split="validation")
     print(f"Selecting {args.num_samples} correctly-classified samples...")
 
     correct_samples = get_correctly_classified_samples(
-        model_wrapper, val_dataset, args.num_samples
+        model_wrapper, val_dataset, args.num_samples, args.seed
     )
     print(f"Found {len(correct_samples)} correctly-classified samples.")
 
-    # Build TextAttack dataset
     ta_dataset = TADataset(
         [(text, label) for text, label in correct_samples],
         input_columns=["text"],
         label_names=["negative", "positive"],
     )
 
-    # Build TextFooler attack
     attack = TextFoolerJin2019.build(model_wrapper)
+    if args.disable_use_constraint:
+        attack.constraints = [
+            constraint
+            for constraint in attack.constraints
+            if constraint.__class__.__name__ != "UniversalSentenceEncoder"
+        ]
 
-    # Run attack
     attack_args = AttackArgs(
         num_examples=len(correct_samples),
         log_to_csv=None,
@@ -100,7 +115,6 @@ def main():
     attacker = Attacker(attack, ta_dataset, attack_args)
     results = attacker.attack_dataset()
 
-    # Compute metrics
     num_successful = sum(
         1 for r in results if isinstance(r, textattack.attack_results.SuccessfulAttackResult)
     )
@@ -116,6 +130,8 @@ def main():
     summary = {
         "model_dir": args.model_dir,
         "num_samples": len(correct_samples),
+        "seed": args.seed,
+        "disable_use_constraint": args.disable_use_constraint,
         "num_successful_attacks": num_successful,
         "num_failed_attacks": num_failed,
         "num_skipped": num_skipped,
@@ -126,7 +142,6 @@ def main():
     for k, v in summary.items():
         print(f"  {k}: {v}")
 
-    # Save detailed results
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     detailed_results = []

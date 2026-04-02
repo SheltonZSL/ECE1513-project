@@ -1,4 +1,4 @@
-"""Fine-tune BERT on SST-2 (baseline or with augmented data)."""
+﻿"""Fine-tune BERT on SST-2 (baseline or with augmented data)."""
 
 import argparse
 import json
@@ -60,6 +60,30 @@ def main():
         default=None,
         help="Directory to save the model (default: results/<mode>_model)",
     )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default=None,
+        help="Cache directory for datasets and pretrained models",
+    )
+    parser.add_argument(
+        "--metrics_output",
+        type=str,
+        default=None,
+        help="Path to save evaluation metrics JSON",
+    )
+    parser.add_argument(
+        "--max_train_samples",
+        type=int,
+        default=None,
+        help="Only train on the first N combined training samples",
+    )
+    parser.add_argument(
+        "--save_strategy",
+        choices=["epoch", "no"],
+        default="epoch",
+        help="Checkpoint saving strategy during training",
+    )
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -67,22 +91,21 @@ def main():
 
     if args.output_dir is None:
         args.output_dir = f"results/{args.mode}_model"
+    if args.metrics_output is None:
+        args.metrics_output = f"results/{args.mode}_train_metrics.json"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # Load tokenizer and model
-    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased", cache_dir=args.cache_dir)
     model = BertForSequenceClassification.from_pretrained(
-        "bert-base-uncased", num_labels=2
+        "bert-base-uncased", num_labels=2, cache_dir=args.cache_dir
     )
 
-    # Load SST-2
-    dataset = load_dataset("glue", "sst2")
+    dataset = load_dataset("glue", "sst2", cache_dir=args.cache_dir)
     train_dataset = dataset["train"]
     val_dataset = dataset["validation"]
 
-    # If augmented mode, merge augmented data into training set
     if args.mode == "augmented":
         print(f"Loading augmented data from {args.augmented_data}")
         aug_dataset = load_augmented_data(args.augmented_data)
@@ -91,7 +114,10 @@ def main():
         train_dataset = concatenate_datasets([train_dataset, aug_dataset])
         print(f"Combined training set size: {len(train_dataset)}")
 
-    # Tokenize
+    if args.max_train_samples is not None:
+        train_dataset = train_dataset.select(range(min(args.max_train_samples, len(train_dataset))))
+        print(f"Limited training set size: {len(train_dataset)}")
+
     print("Tokenizing training set...")
     train_dataset = train_dataset.map(
         lambda x: tokenize(x, tokenizer), batched=True, remove_columns=["sentence", "idx"],
@@ -106,7 +132,6 @@ def main():
     train_dataset.set_format("torch")
     val_dataset.set_format("torch")
 
-    # Training arguments
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
@@ -115,8 +140,9 @@ def main():
         learning_rate=args.lr,
         weight_decay=0.01,
         eval_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
+        save_strategy=args.save_strategy,
+        save_total_limit=1,
+        load_best_model_at_end=args.save_strategy != "no",
         metric_for_best_model="accuracy",
         logging_steps=100,
         report_to="none",
@@ -133,19 +159,18 @@ def main():
     print(f"Starting {args.mode} training...")
     trainer.train()
 
-    # Save final model
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
 
-    # Evaluate and save metrics
     metrics = trainer.evaluate()
     print(f"Validation metrics: {metrics}")
 
-    os.makedirs("results", exist_ok=True)
-    metrics_path = f"results/{args.mode}_train_metrics.json"
-    with open(metrics_path, "w") as f:
+    metrics_dir = os.path.dirname(args.metrics_output)
+    if metrics_dir:
+        os.makedirs(metrics_dir, exist_ok=True)
+    with open(args.metrics_output, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
-    print(f"Metrics saved to {metrics_path}")
+    print(f"Metrics saved to {args.metrics_output}")
 
 
 if __name__ == "__main__":

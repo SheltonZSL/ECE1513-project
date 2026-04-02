@@ -1,4 +1,4 @@
-"""Generate adversarial augmented training data using TextAttack augmenters."""
+﻿"""Generate adversarial augmented training data using TextAttack augmenters."""
 
 import argparse
 import json
@@ -11,6 +11,18 @@ from textattack.augmentation import WordNetAugmenter, CharSwapAugmenter
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--strategy",
+        choices=["wordnet", "charswap", "mixed"],
+        default="mixed",
+        help="Augmentation strategy to use",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="Only augment the first N training samples",
+    )
     parser.add_argument(
         "--output",
         type=str,
@@ -27,11 +39,11 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load SST-2 training set
     dataset = load_dataset("glue", "sst2", split="train")
+    if args.max_samples is not None:
+        dataset = dataset.select(range(min(args.max_samples, len(dataset))))
     print(f"Original training set size: {len(dataset)}")
 
-    # Initialize augmenters
     wordnet_aug = WordNetAugmenter(
         pct_words_to_swap=args.pct_word,
         transformations_per_example=1,
@@ -49,8 +61,12 @@ def main():
         sentence = example["sentence"]
         label = example["label"]
 
-        # Alternate between WordNet and CharSwap
-        augmenter = wordnet_aug if i % 2 == 0 else charswap_aug
+        if args.strategy == "wordnet":
+            augmenter = wordnet_aug
+        elif args.strategy == "charswap":
+            augmenter = charswap_aug
+        else:
+            augmenter = wordnet_aug if i % 2 == 0 else charswap_aug
 
         try:
             augmented_texts = augmenter.augment(sentence)
@@ -75,7 +91,6 @@ def main():
                 f"ETA: {eta / 60:.1f} min"
             )
 
-    # Save
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(augmented_records, f, indent=2)

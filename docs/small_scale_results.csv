@@ -1,0 +1,4 @@
+method,clean_accuracy,attack_success_rate
+Baseline,0.8796,1.0
+CharSwap,0.8853,0.98
+WordNet,0.8658,0.94

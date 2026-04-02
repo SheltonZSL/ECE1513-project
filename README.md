@@ -1,3 +1,108 @@
-# ECE1513-project
+﻿# ECE1513 Project
 
-Despite the remarkable performance of Transformer-based models like BERT in Natural Language Processing (NLP), recent studies have shown their significant vulnerability to adversarial attacks. Minor disruptions such as synonym substitutions or character-level typos can drastically mislead a model's predictions, posing severe reliability concerns for real-world applications like automated content moderation and sentiment analysis. The motivation of this project is to investigate and bridge the gap between high accuracy on "clean" datasets and poor robustness under "noisy" or "hostile" inputs. The vulnerability stems from the model's internal representation of texts makes Machine Learning the ideal framework for this problem, and the solution must involve retraining the model to recognize a broader level of language understanding. To address this, a pipeline using the TextAttack framework will be implemented. First, a baseline will be established by evaluating a pre-trained BERT model against state-of-the-art attack algorithms like TextFooler. Subsequently, Adversarial Data Augmentation will be applied by generating synthetic adversarial examples during the training phase. This process involves replacing critical tokens with contextually similar embeddings to force the model to focus on higher-level language features rather than traditional keyword patterns. Finally, comparative experiments will be conducted to measure the trade-off between standard accuracy and robustness, aiming to demonstrate that adversarial training significantly reduces the success rate of attacks without compromising general performance.
+## Overview
+This project studies the adversarial robustness of `bert-base-uncased` on the SST-2 sentiment classification task. The goal is to compare a standard fine-tuned BERT baseline with simple adversarial data augmentation methods and measure the trade-off between clean accuracy and robustness under adversarial attack.
+
+## What We Implemented
+- Baseline BERT fine-tuning on SST-2
+- Clean validation evaluation
+- Adversarial data generation with TextAttack-based augmenters
+  - `WordNet`
+  - `CharSwap`
+  - `Mixed`
+- TextFooler-style attack evaluation
+- Small-sample ablation support for faster experiments
+- Result table and visualization for current experiments
+
+## Repository Structure
+- `src/train.py`: train baseline or augmented BERT models
+- `src/evaluate.py`: evaluate clean accuracy
+- `src/augment.py`: generate augmented training samples
+- `src/attack.py`: run adversarial attacks
+- `src/plot_small_scale_results.py`: export the current result table and plot under `docs/`
+- `report_en.md`: English report draft
+- `report_zh.md`: Chinese report draft
+
+## Setup
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## How To Run
+Generate augmented data:
+
+```bash
+python src/augment.py --strategy charswap --max_samples 500 --output results/aug_charswap_500.json
+python src/augment.py --strategy wordnet --max_samples 500 --output results/aug_wordnet_500.json
+```
+
+Train a baseline model:
+
+```bash
+python src/train.py --mode baseline --output_dir results/baseline_model
+```
+
+Train an augmented model:
+
+```bash
+python src/train.py --mode augmented --augmented_data results/aug_charswap_500.json --output_dir results/charswap_model
+```
+
+Run clean evaluation:
+
+```bash
+python src/evaluate.py --model_dir results/baseline_model
+```
+
+Run attack evaluation:
+
+```bash
+python src/attack.py --model_dir results/baseline_model --num_samples 50 --seed 42 --disable_use_constraint --output results/baseline_attack_light.json
+```
+
+Generate the summary plot and CSV under `docs/`:
+
+```bash
+python src/plot_small_scale_results.py
+```
+
+## Current Experiment Status
+We completed a small-scale comparison with a shared setup:
+- training samples: `5000`
+- epochs: `1`
+- device: `CPU`
+- attack samples: `50`
+- seed: `42`
+
+## Result Table
+| Method | Clean Accuracy | Attack Success Rate |
+| --- | ---: | ---: |
+| Baseline | 0.8796 | 1.00 |
+| CharSwap | 0.8853 | 0.98 |
+| WordNet | 0.8658 | 0.94 |
+
+## Visualization
+![Small-scale experiment comparison](docs/small_scale_results.png)
+
+## Result Interpretation
+Under this small-scale setup:
+- `CharSwap` gives the best clean accuracy
+- `WordNet` gives the best robustness among the three tested settings
+- all models remain highly vulnerable to adversarial attack
+
+## Important Note About Attack Results
+The current attack results were produced with:
+- `--disable_use_constraint`
+
+This disables the `UniversalSentenceEncoder` semantic constraint in the default TextFooler recipe to avoid the heavy TensorFlow dependency chain. Because of that, these results should be described as a lighter `TextFooler-style` attack rather than the full original TextFooler configuration.
+
+## Next Steps
+Possible follow-up work:
+- run the same setup for the `mixed` augmentation strategy
+- increase epochs from `1` to `3`
+- run larger training subsets
+- repeat attacks with multiple seeds
+- add stronger defenses or additional attack methods
+
