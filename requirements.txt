@@ -7,3 +7,4 @@ textattack
 scikit-learn
 matplotlib
 numpy
+jupyter

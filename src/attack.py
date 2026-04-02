@@ -16,7 +16,9 @@ from textattack.datasets import Dataset as TADataset
 from textattack import Attacker, AttackArgs
 
 
-def get_correctly_classified_samples(model_wrapper, dataset, num_samples=200, seed=42):
+def get_correctly_classified_samples(
+    model_wrapper, dataset, num_samples=200, sampling="sequential", seed=42
+):
     """Select samples that the model classifies correctly."""
     correct_samples = []
     checked = 0
@@ -29,9 +31,11 @@ def get_correctly_classified_samples(model_wrapper, dataset, num_samples=200, se
             correct_samples.append((sentence, label))
         if checked % 50 == 0:
             print(f"  Checked {checked} samples, found {len(correct_samples)}/{num_samples} correct...")
+        if sampling == "sequential" and len(correct_samples) >= num_samples:
+            break
 
-    if len(correct_samples) <= num_samples:
-        return correct_samples
+    if sampling == "sequential" or len(correct_samples) <= num_samples:
+        return correct_samples[:num_samples]
 
     rng = random.Random(seed)
     return rng.sample(correct_samples, num_samples)
@@ -58,10 +62,16 @@ def main():
         help="Output path for attack results JSON",
     )
     parser.add_argument(
+        "--sampling",
+        choices=["sequential", "random"],
+        default="sequential",
+        help="How to choose correctly-classified samples for attack",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
-        help="Random seed for sampling correctly-classified examples",
+        help="Random seed used when sampling=random",
     )
     parser.add_argument(
         "--disable_use_constraint",
@@ -88,7 +98,11 @@ def main():
     print(f"Selecting {args.num_samples} correctly-classified samples...")
 
     correct_samples = get_correctly_classified_samples(
-        model_wrapper, val_dataset, args.num_samples, args.seed
+        model_wrapper,
+        val_dataset,
+        args.num_samples,
+        sampling=args.sampling,
+        seed=args.seed,
     )
     print(f"Found {len(correct_samples)} correctly-classified samples.")
 
@@ -130,6 +144,7 @@ def main():
     summary = {
         "model_dir": args.model_dir,
         "num_samples": len(correct_samples),
+        "sampling": args.sampling,
         "seed": args.seed,
         "disable_use_constraint": args.disable_use_constraint,
         "num_successful_attacks": num_successful,
